@@ -52,7 +52,7 @@ function _logProfits(price) {
 
     const initialBalance = parseFloat(store.get(`initial_${PAIR_2.toLocaleLowerCase()}_balance`));
     logColor(colors.gray, 
-        `Balances: ${PAIR_1} ${pair2Balance.toFixed(2)} ${PAIR_2}, Current: ${parseFloat(pair1Balance * price + pair2Balance)} ${PAIR_2}, Initial: ${initialBalance.toFixed(2)} ${PAIR_2}`);
+        `Balances: ${pair1Balance} ${PAIR_1} ${pair2Balance.toFixed(2)} ${PAIR_2}, Current: ${parseFloat(pair1Balance * price + pair2Balance)} ${PAIR_2}, Initial: ${initialBalance.toFixed(2)} ${PAIR_2}`);
 }
 
 async function _buy(price, amount) {
@@ -159,7 +159,7 @@ async function _sell(price) {
 async function listenPrice() {
     while (true) {
         try {
-            const binancePrice = parseFloat(await binance.prices(PAIR)[PAIR]);
+            let binancePrice = parseFloat((await binance.prices(PAIR))[PAIR]);
             if (binancePrice) {
                 const startPrice = store.get('start_price');
                 const marketPrice = binancePrice;
