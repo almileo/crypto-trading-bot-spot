@@ -52,7 +52,7 @@ function _logProfits(price) {
 
     const initialBalance = parseFloat(store.get(`initial_${PAIR_2.toLocaleLowerCase()}_balance`));
     logColor(colors.gray, 
-        `Balances: ${pair1Balance} ${PAIR_1} ${pair2Balance.toFixed(2)} ${PAIR_2}, Current: ${parseFloat(pair1Balance * price + pair2Balance)} ${PAIR_2}, Initial: ${initialBalance.toFixed(2)} ${PAIR_2}`);
+        `Balances: ${pair1Balance} ${PAIR_1} | ${pair2Balance.toFixed(2)} ${PAIR_2}, Current: ${parseFloat(pair1Balance * price + pair2Balance)} ${PAIR_2}, Initial: ${initialBalance.toFixed(2)} ${PAIR_2}`);
 }
 
 async function _buy(price, amount) {
@@ -77,9 +77,7 @@ async function _buy(price, amount) {
         `)
 
         const res = await binance.marketBuy(PAIR, order.amount);
-        console.log('res - _buy: ', res);
         if(res && res.status === 'FILLED') {
-            console.log('entre al if');
             order.status = 'bought';
             order.id = res.orderId;
             order.buy_price = parseFloat(res.fills[0].price);
@@ -122,7 +120,6 @@ async function _sell(price) {
             
             const res = await binance.marketSell(PAIR, totalAmount);
             if (res && res.status === 'FILLED') {
-                console.log(`I'll sell at this price ${price}`);
                 const _price = parseFloat(res.fills[0].price);
 
                 for(let i = 0; i < orders.length; i++) {
@@ -139,9 +136,9 @@ async function _sell(price) {
                 store.put('start_price', _price);
                 await _updateBalances();
 
-                logColor(colors.red, '===============================================================');
+                logColor(colors.red, '=====================================================================');
                 logColor(colors.red, `Sold: ${totalAmount} ${PAIR_1} for ${parseFloat(totalAmount * _price).toFixed(2)} ${PAIR_2}, Price ${_price}\n`);
-                logColor(colors.red, '===============================================================');
+                logColor(colors.red, '=====================================================================');
 
                 await _calculateProfits();
 
@@ -167,9 +164,9 @@ async function listenPrice() {
                 const marketPrice = binancePrice;
 
                 console.clear();
-                log('=================================================================');
+                log('========================================================================================');
                 _logProfits(marketPrice);
-                log('=================================================================');
+                log('========================================================================================');
 
                 log(`Prev Price: ${startPrice}`);
                 log(`New Price: ${marketPrice}`);
