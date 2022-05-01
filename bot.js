@@ -2,6 +2,7 @@ require('dotenv').config();
 const Storage = require('node-storage');
 const { colors, log, logColor } = require('./utils/logger');
 const binance = require('./service/binance');
+const telegramBot = require('./service/telegram');
 
 const PAIR_1 = process.argv[2];
 const PAIR_2 = process.argv[3];
@@ -91,6 +92,8 @@ async function _buy(price, amount) {
             logColor(colors.green, '======================================================');
 
             await _calculateProfits();
+
+            telegramBot.sendMessage('1062229382', `Hey! I am buying ${BUY_ORDER_AMOUT} ${PAIR_1} for ${parseFloat(BUY_ORDER_AMOUT * price).toFixed(2)} ${PAIR_2}, Price: ${order.buy_price}`)
         } else newPriceReset(2, BUY_ORDER_AMOUT * price, price);
     } else {
         logColor(colors.gray, 'You do not have the sufficient balance for this trade');
@@ -151,6 +154,9 @@ async function _sell(price) {
                         orders.splice(i, 1);
                     }
                 }
+
+                telegramBot.sendMessage('1062229382', `Hey! I am selling ${totalAmount} ${PAIR_1} for ${parseFloat(totalAmount * _price).toFixed(2)} ${PAIR_2}, Price: ${_price}`)
+
             } else store.put('start_price', price);
         } else store.put('start_price', price);
     } else store.put('start_price', price);
@@ -202,6 +208,7 @@ async function listenPrice() {
             }
         } catch (error) {
             // console.log('error: ', error);
+            telegramBot.sendMessage('1062229382', `Hey! Something went wrong with the bot`);
         }
         await sleep(process.env.SLEEP_TIME);
     }
