@@ -45,7 +45,7 @@ function _logProfits(price) {
     let isGainerProfit = profits > 0 ? 1 : profits < 0 ? 2 : 0
 
     logColor(isGainerProfit == 1 ? colors.green : isGainerProfit == 2 ? colors.red : colors.gray, 
-        `Global profits: ${parseFloat(store.get('profits')).toFixed(3)} ${PAIR_2}`);
+        `Global profits: ${parseFloat(store.get('profits')).toFixed(4)} ${PAIR_2}`);
     
     const pair1Balance = parseFloat(store.get(`${PAIR_1.toLocaleLowerCase()}_balance`));
     const pair2Balance = parseFloat(store.get(`${PAIR_2.toLocaleLowerCase()}_balance`));
@@ -56,7 +56,6 @@ function _logProfits(price) {
 }
 
 async function _buy(price, amount) {
-    console.log(`I'll buy ${amount} at this price ${price}`);
     if (parseFloat(store.get(`${PAIR_2.toLocaleLowerCase()}_balance`)) >= BUY_ORDER_AMOUT * price) {
         let orders = store.get('orders');
         let factor = process.env.PRICE_PERCENT * price / 100;
@@ -78,7 +77,9 @@ async function _buy(price, amount) {
         `)
 
         const res = await binance.marketBuy(PAIR, order.amount);
+        console.log('res - _buy: ', res);
         if(res && res.status === 'FILLED') {
+            console.log('entre al if');
             order.status = 'bought';
             order.id = res.orderId;
             order.buy_price = parseFloat(res.fills[0].price);
@@ -87,9 +88,9 @@ async function _buy(price, amount) {
             store.put('start_price', order.buy_price);
             await _updateBalances();
 
-            logColor(colors.green, '===============================');
+            logColor(colors.green, '======================================================');
             logColor(colors.green, `Bought: ${BUY_ORDER_AMOUT} ${PAIR_1} for ${parseFloat(BUY_ORDER_AMOUT * price).toFixed(2)} ${PAIR_2}, Price: ${order.buy_price}\n`);
-            logColor(colors.green, '===============================');
+            logColor(colors.green, '======================================================');
 
             await _calculateProfits();
         } else newPriceReset(2, BUY_ORDER_AMOUT * price, price);
@@ -97,38 +98,38 @@ async function _buy(price, amount) {
 }
 
 async function _sell(price) {
-    console.log(`I'll sell at this price ${price}`);
     const orders = store.get('orders');
     const toSold = [];
-
-    for(let i=0; i<orders.length; i++) {
+    
+    for(let i = 0; i < orders.length; i++) {
         let order = orders[i];
         if(price >= order.sell_price) {
-            order.sell_price = price;
+            order.sold_price = price;
             order.status = 'selling';
             toSold.push(order);
         }
     }
-
+    
     if (toSold.length > 0) {
         const totalAmount = parseFloat(toSold.map(order => order.amount).reduce((prev, next) => parseFloat(prev) + parseFloat(next)));
         if (totalAmount > 0 && parseFloat(store.get(`${PAIR_1.toLocaleLowerCase()}_balance`)) >= totalAmount) {
             log(`
                 Selling ${PAIR_1}
-                ====================
+                ===========================
                 amountIn: ${totalAmount.toFixed(2)} ${PAIR_1}
                 amountOut: ${parseFloat(totalAmount * price).toFixed(2)} ${PAIR_2}
             `)
-
+            
             const res = await binance.marketSell(PAIR, totalAmount);
             if (res && res.status === 'FILLED') {
+                console.log(`I'll sell at this price ${price}`);
                 const _price = parseFloat(res.fills[0].price);
 
                 for(let i = 0; i < orders.length; i++) {
                     let order = orders[i]
                     for (let j = 0; j < toSold.length; j++) {
                         if (order.id == toSold[j].id) {
-                            toSold[j].profit = (parseFloat(toSold[j].amount * _price)) - (parseFloat(toSold[j].amount) * parseFloat(toSold[j].buy_price));
+                            toSold[j].profit = (parseFloat(toSold[j].amount) * _price) - (parseFloat(toSold[j].amount) * parseFloat(toSold[j].buy_price));
                             toSold[j].status = 'sold';
                             orders[i] = toSold[j];
                         }
@@ -138,16 +139,16 @@ async function _sell(price) {
                 store.put('start_price', _price);
                 await _updateBalances();
 
-                logColor(colors.red, '=================================');
+                logColor(colors.red, '===============================================================');
                 logColor(colors.red, `Sold: ${totalAmount} ${PAIR_1} for ${parseFloat(totalAmount * _price).toFixed(2)} ${PAIR_2}, Price ${_price}\n`);
-                logColor(colors.red, '=================================');
+                logColor(colors.red, '===============================================================');
 
                 await _calculateProfits();
 
                 let i = orders.length;
-                while(i--) {
+                while(i--) {    
                     if(orders[i].status === 'sold') {
-                        orders.splice(1, 1);
+                        orders.splice(i, 1);
                     }
                 }
             } else store.put('start_price', price);
@@ -160,14 +161,15 @@ async function listenPrice() {
     while (true) {
         try {
             let binancePrice = parseFloat((await binance.prices(PAIR))[PAIR]);
+
             if (binancePrice) {
                 const startPrice = store.get('start_price');
                 const marketPrice = binancePrice;
 
                 console.clear();
-                log('===============================================');
+                log('=================================================================');
                 _logProfits(marketPrice);
-                log('===============================================');
+                log('=================================================================');
 
                 log(`Prev Price: ${startPrice}`);
                 log(`New Price: ${marketPrice}`);
@@ -180,7 +182,7 @@ async function listenPrice() {
                     store.put('percent', `+${parseFloat(percent).toFixed(3)}`)
 
                     if (percent >= process.env.PRICE_PERCENT) {
-                        await _sell(marketPrice, BUY_ORDER_AMOUT);
+                        await _sell(marketPrice);
                     }
 
                 } else if (marketPrice < startPrice) {
@@ -191,15 +193,15 @@ async function listenPrice() {
                     store.put('percent', `-${parseFloat(percent).toFixed(3)}`)
 
                     if (percent >= process.env.PRICE_PERCENT) {
-                        await _buy(marketPrice, BUY_ORDER_AMOUT)
+                        await _buy(marketPrice, BUY_ORDER_AMOUT);
                     }
                 } else {
-                    logColor(colors.gray, 'Change: 0.000% ==> $0.000');
+                    logColor(colors.gray, 'Change: 0.000% ==> $0.0000');
                     store.put('percent', '0.000');
                 }
             }
         } catch (error) {
-            console.log('error: ', error);
+            // console.log('error: ', error);
         }
         await sleep(process.env.SLEEP_TIME);
     }
