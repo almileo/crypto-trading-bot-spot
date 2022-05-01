@@ -92,7 +92,10 @@ async function _buy(price, amount) {
 
             await _calculateProfits();
         } else newPriceReset(2, BUY_ORDER_AMOUT * price, price);
-    } else newPriceReset(2, BUY_ORDER_AMOUT * price, price);
+    } else {
+        logColor(colors.gray, 'You do not have the sufficient balance for this trade');
+        newPriceReset(2, BUY_ORDER_AMOUT * price, price);
+    }
 }
 
 async function _sell(price) {
