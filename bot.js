@@ -7,7 +7,10 @@ const telegramBot = require('./service/telegram');
 const PAIR_1 = process.argv[2];
 const PAIR_2 = process.argv[3];
 const PAIR = PAIR_1 + PAIR_2;
-const BUY_ORDER_AMOUT = process.argv[4]; //think 'n try with fix value and portfolio percentaje
+const BUY_ORDER_AMOUT = process.argv[4]; //think 'n try with fix value fiat or portfolio percentaje
+const sellEmoji = '\uD83D\uDCC9';
+const buyEmoji = '\uD83D\uDCC8';
+const exclamationEmoji = '\u203C';
 
 const store = new Storage(`./data/${PAIR}.json`);
 
@@ -28,6 +31,7 @@ async function _updateBalances() {
     const balances = await _balances();
     store.put(`${PAIR_1.toLocaleLowerCase()}_balance`, parseFloat(balances[PAIR_1].available));
     store.put(`${PAIR_2.toLocaleLowerCase()}_balance`, parseFloat(balances[PAIR_2].available));
+    store.put(`bnb_balance`, parseFloat(balances['BNB'].available));
 }
 
 async function _calculateProfits() {
@@ -41,19 +45,23 @@ async function _calculateProfits() {
     store.put('profits', totalSoldProfits + parseFloat(store.get('profits')));
 }
 
-function _logProfits(price) {
+function _logProfits(price, bnbPrice) {
     const profits = parseFloat(store.get('profits'));
     let isGainerProfit = profits > 0 ? 1 : profits < 0 ? 2 : 0
 
     logColor(isGainerProfit == 1 ? colors.green : isGainerProfit == 2 ? colors.red : colors.gray, 
-        `Global profits: ${parseFloat(store.get('profits')).toFixed(4)} ${PAIR_2}`);
+        `   Global profits: ${parseFloat(store.get('profits')).toFixed(4)} ${PAIR_2}`);
     
     const pair1Balance = parseFloat(store.get(`${PAIR_1.toLocaleLowerCase()}_balance`));
     const pair2Balance = parseFloat(store.get(`${PAIR_2.toLocaleLowerCase()}_balance`));
+    const bnbBalance = parseFloat(store.get('bnb_balance'));
+    const orders = store.get('orders');
 
     const initialBalance = parseFloat(store.get(`initial_${PAIR_2.toLocaleLowerCase()}_balance`));
     logColor(colors.gray, 
-        `Balances: ${pair1Balance} ${PAIR_1} | ${pair2Balance.toFixed(2)} ${PAIR_2}, Current: ${parseFloat(pair1Balance * price + pair2Balance)} ${PAIR_2}, Initial: ${initialBalance.toFixed(2)} ${PAIR_2}`);
+        `   Balances: ${pair1Balance} ${PAIR_1} | ${pair2Balance.toFixed(2)} ${PAIR_2}, Current: ${parseFloat(pair1Balance * price + pair2Balance)} ${PAIR_2}, Initial: ${initialBalance.toFixed(2)} ${PAIR_2}`);
+    logColor(colors.gray,
+        `   BNB for fees: ${bnbBalance} (${(bnbPrice * bnbBalance).toFixed(3)} USDT) | Pending Orders: ${orders.length}`);
 }
 
 async function _buy(price, amount) {
@@ -87,18 +95,16 @@ async function _buy(price, amount) {
             store.put('start_price', order.buy_price);
             await _updateBalances();
 
-            logColor(colors.green, '======================================================');
+            logColor(colors.green, '======================================================\n');
             logColor(colors.green, `Bought: ${BUY_ORDER_AMOUT} ${PAIR_1} for ${parseFloat(BUY_ORDER_AMOUT * price).toFixed(2)} ${PAIR_2}, Price: ${order.buy_price}\n`);
             logColor(colors.green, '======================================================');
 
             await _calculateProfits();
 
-            telegramBot.sendMessage('1062229382', `Hey! I am buying ${BUY_ORDER_AMOUT} ${PAIR_1} for ${parseFloat(BUY_ORDER_AMOUT * price).toFixed(2)} ${PAIR_2}, Price: ${order.buy_price}`)
+            telegramBot.sendMessage(process.env.TELEGRAM_CHAT_ID, `${buyEmoji} Hey! I am buying ${BUY_ORDER_AMOUT} ${PAIR_1} for ${parseFloat(BUY_ORDER_AMOUT * price).toFixed(2)} ${PAIR_2}, Price: ${order.buy_price}`)
         } else newPriceReset(2, BUY_ORDER_AMOUT * price, price);
-    } else {
-        logColor(colors.gray, 'You do not have the sufficient balance for this trade');
-        newPriceReset(2, BUY_ORDER_AMOUT * price, price);
-    }
+    } else newPriceReset(2, BUY_ORDER_AMOUT * price, price);
+    
 }
 
 async function _sell(price) {
@@ -142,7 +148,7 @@ async function _sell(price) {
                 store.put('start_price', _price);
                 await _updateBalances();
 
-                logColor(colors.red, '=====================================================================');
+                logColor(colors.red, '=====================================================================\n');
                 logColor(colors.red, `Sold: ${totalAmount} ${PAIR_1} for ${parseFloat(totalAmount * _price).toFixed(2)} ${PAIR_2}, Price ${_price}\n`);
                 logColor(colors.red, '=====================================================================');
 
@@ -155,7 +161,7 @@ async function _sell(price) {
                     }
                 }
 
-                telegramBot.sendMessage('1062229382', `Hey! I am selling ${totalAmount} ${PAIR_1} for ${parseFloat(totalAmount * _price).toFixed(2)} ${PAIR_2}, Price: ${_price}`)
+                telegramBot.sendMessage(process.env.TELEGRAM_CHAT_ID, `${sellEmoji} Hey! I am selling ${totalAmount} ${PAIR_1} for ${parseFloat(totalAmount * _price).toFixed(2)} ${PAIR_2}, Price: ${_price}`)
 
             } else store.put('start_price', price);
         } else store.put('start_price', price);
@@ -167,6 +173,7 @@ async function listenPrice() {
     while (true) {
         try {
             let binancePrice = parseFloat((await binance.prices(PAIR))[PAIR]);
+            let bnbPrice = parseFloat((await binance.prices('BNBUSDT'))['BNBUSDT']);
 
             if (binancePrice) {
                 const startPrice = store.get('start_price');
@@ -174,17 +181,17 @@ async function listenPrice() {
 
                 console.clear();
                 log('========================================================================================');
-                _logProfits(marketPrice);
+                _logProfits(marketPrice, bnbPrice);
                 log('========================================================================================');
 
-                log(`Prev Price: ${startPrice}`);
-                log(`New Price: ${marketPrice}`);
+                log(`   Prev Price: ${startPrice}`);
+                log(`   New Price: ${marketPrice}`);
 
                 if (marketPrice > startPrice) {
                     let factor = (marketPrice - startPrice);
                     let percent = 100 * factor / marketPrice;
 
-                    logColor(colors.green, `Up: +${parseFloat(percent).toFixed(3)}% ==> +$${parseFloat(factor).toFixed(4)}`);
+                    logColor(colors.green, `    Up: +${parseFloat(percent).toFixed(3)}% ==> +$${parseFloat(factor).toFixed(4)}`);
                     store.put('percent', `+${parseFloat(percent).toFixed(3)}`)
 
                     if (percent >= process.env.PRICE_PERCENT) {
@@ -195,20 +202,20 @@ async function listenPrice() {
                     let factor = (startPrice - marketPrice);
                     let percent = 100 * factor / startPrice;
 
-                    logColor(colors.red, `Down: -${parseFloat(percent).toFixed(3)}% ==> -$${parseFloat(factor).toFixed(4)}`);
+                    logColor(colors.red, `  Down: -${parseFloat(percent).toFixed(3)}% ==> -$${parseFloat(factor).toFixed(4)}`);
                     store.put('percent', `-${parseFloat(percent).toFixed(3)}`)
 
                     if (percent >= process.env.PRICE_PERCENT) {
                         await _buy(marketPrice, BUY_ORDER_AMOUT);
                     }
                 } else {
-                    logColor(colors.gray, 'Change: 0.000% ==> $0.0000');
+                    logColor(colors.gray, '   Change: 0.000% ==> $0.0000');
                     store.put('percent', '0.000');
                 }
             }
         } catch (error) {
             // console.log('error: ', error);
-            telegramBot.sendMessage('1062229382', `Hey! Something went wrong with the bot`);
+            telegramBot.sendMessage(process.env.TELEGRAM_CHAT_ID, `${exclamationEmoji} Hey! Something went wrong with the bot`);
         }
         await sleep(process.env.SLEEP_TIME);
     }
@@ -223,8 +230,10 @@ async function init() {
         const balances = await _balances();
         store.put(`${PAIR_1.toLocaleLowerCase()}_balance`, parseFloat(balances[PAIR_1].available));
         store.put(`${PAIR_2.toLocaleLowerCase()}_balance`, parseFloat(balances[PAIR_2].available));
+        store.put(`bnb_balance`, parseFloat(balances['BNB'].available));
         store.put(`initial_${PAIR_1.toLocaleLowerCase()}_balance`, store.get(`${PAIR_1.toLocaleLowerCase()}_balance`));
         store.put(`initial_${PAIR_2.toLocaleLowerCase()}_balance`, store.get(`${PAIR_2.toLocaleLowerCase()}_balance`));
+        store.put(`initial_bnb_balance`, store.get(`bnb_balance`));
     } 
 
     listenPrice();
