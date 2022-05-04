@@ -196,7 +196,7 @@ async function listenPrice() {
                     let factor = (marketPrice - startPrice);
                     let percent = 100 * factor / marketPrice;
 
-                    logColor(colors.green, `    Up: +${parseFloat(percent).toFixed(3)}% ==> +$${parseFloat(factor).toFixed(4)}`);
+                    logColor(colors.green, `   Up: +${parseFloat(percent).toFixed(3)}% ==> +$${parseFloat(factor).toFixed(4)}`);
                     store.put('percent', `+${parseFloat(percent).toFixed(3)}`)
 
                     if (percent >= process.env.PRICE_PERCENT) {
@@ -207,7 +207,7 @@ async function listenPrice() {
                     let factor = (startPrice - marketPrice);
                     let percent = 100 * factor / startPrice;
 
-                    logColor(colors.red, `  Down: -${parseFloat(percent).toFixed(3)}% ==> -$${parseFloat(factor).toFixed(4)}`);
+                    logColor(colors.red, `   Down: -${parseFloat(percent).toFixed(3)}% ==> -$${parseFloat(factor).toFixed(4)}`);
                     store.put('percent', `-${parseFloat(percent).toFixed(3)}`)
 
                     if (percent >= process.env.PRICE_PERCENT) {
