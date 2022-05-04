@@ -1,6 +1,7 @@
 require('dotenv').config();
 const Storage = require('node-storage');
 const { colors, log, logColor } = require('./utils/logger');
+const { dateFormat } = require('./utils/dateFormatter');
 const binance = require('./service/binance');
 const telegramBot = require('./service/telegram');
 
@@ -175,11 +176,15 @@ async function listenPrice() {
             let binancePrice = parseFloat((await binance.prices(PAIR))[PAIR]);
             let bnbPrice = parseFloat((await binance.prices('BNBUSDT'))['BNBUSDT']);
 
+            let runningTime = dateFormat(process.uptime());
+
             if (binancePrice) {
                 const startPrice = store.get('start_price');
                 const marketPrice = binancePrice;
 
                 console.clear();
+                log('========================================================================================');
+                logColor(colors.yellow, `   ${new Date()} | The bot has been running for ${runningTime}`);
                 log('========================================================================================');
                 _logProfits(marketPrice, bnbPrice);
                 log('========================================================================================');
@@ -214,7 +219,7 @@ async function listenPrice() {
                 }
             }
         } catch (error) {
-            // console.log('error: ', error);
+            console.log('error: ', error);
             telegramBot.sendMessage(process.env.TELEGRAM_CHAT_ID, `${exclamationEmoji} Hey! Something went wrong with the bot`);
         }
         await sleep(process.env.SLEEP_TIME);
