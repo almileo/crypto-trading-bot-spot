@@ -2,8 +2,31 @@ require('dotenv').config();
 const Storage = require('node-storage');
 const { colors, log, logColor } = require('./utils/logger');
 const { dateFormat } = require('./utils/dateFormatter');
+const bybit = require('./service/bybit');
 const binance = require('./service/binance');
 const telegramBot = require('./service/telegram');
+const express = require('express');
+const bodyParser = require('body-parser');
+const app = express();
+
+//Implementing webhook with ngrok
+
+app.use(bodyParser.json());
+
+app.post('/webhook', (req, res) => {
+    console.log('/webhook req.body.signal: ', req.body.signal) 
+    let signal = req.body.signal;
+    res.send('Hello World webhook working')
+    res.status(200).end() 
+});
+
+const start = app.get('/', (req, res) => {
+  res.send('The bot is working, lets do its job...')
+});
+
+const listen = app.listen(process.env.PORT, () => {
+  console.log(`The server is running OK on port: ${process.env.PORT}`);
+});
 
 const PAIR_1 = process.argv[2];
 const PAIR_2 = process.argv[3];
@@ -18,7 +41,8 @@ const store = new Storage(`./data/${PAIR}.json`);
 const sleep = (timeMS) => new Promise(resolve => setTimeout(resolve, timeMS));
 
 async function _balances() {
-    return await binance.balance();
+    // return await binance.balance();
+    return await bybit.getBalances();
 }
 
 function newPriceReset(_pair, balance, price) {
@@ -30,9 +54,13 @@ function newPriceReset(_pair, balance, price) {
 
 async function _updateBalances() {
     const balances = await _balances();
-    store.put(`${PAIR_1.toLocaleLowerCase()}_balance`, parseFloat(balances[PAIR_1].available));
-    store.put(`${PAIR_2.toLocaleLowerCase()}_balance`, parseFloat(balances[PAIR_2].available));
-    store.put(`bnb_balance`, parseFloat(balances['BNB'].available));
+    const pair1 = balances.result.balances.find((b) => b.coin === PAIR_1);
+    const pair2 = balances.result.balances.find((b) => b.coin === PAIR_2);
+    store.put(`${PAIR_1.toLocaleLowerCase()}_balance`, parseFloat(pair1.free));
+    store.put(`${PAIR_2.toLocaleLowerCase()}_balance`, parseFloat(pair2.free));
+    // store.put(`${PAIR_1.toLocaleLowerCase()}_balance`, parseFloat(balances[PAIR_1].available));
+    // store.put(`${PAIR_2.toLocaleLowerCase()}_balance`, parseFloat(balances[PAIR_2].available));
+    // store.put(`bnb_balance`, parseFloat(balances['BNB'].available));
 }
 
 async function _calculateProfits() {
@@ -46,23 +74,23 @@ async function _calculateProfits() {
     store.put('profits', totalSoldProfits + parseFloat(store.get('profits')));
 }
 
-function _logProfits(price, bnbPrice) {
+function _logProfits(price) {
     const profits = parseFloat(store.get('profits'));
     let isGainerProfit = profits > 0 ? 1 : profits < 0 ? 2 : 0
 
     logColor(isGainerProfit == 1 ? colors.green : isGainerProfit == 2 ? colors.red : colors.gray, 
-        `   Global profits: ${parseFloat(store.get('profits')).toFixed(4)} ${PAIR_2}`);
+        `   Global Profits: ${parseFloat(store.get('profits')).toFixed(4)} ${PAIR_2}`);
     
     const pair1Balance = parseFloat(store.get(`${PAIR_1.toLocaleLowerCase()}_balance`));
     const pair2Balance = parseFloat(store.get(`${PAIR_2.toLocaleLowerCase()}_balance`));
-    const bnbBalance = parseFloat(store.get('bnb_balance'));
+    // const bnbBalance = parseFloat(store.get('bnb_balance'));
     const orders = store.get('orders');
 
     const initialBalance = parseFloat(store.get(`initial_${PAIR_2.toLocaleLowerCase()}_balance`));
     logColor(colors.gray, 
-        `   Balances: ${pair1Balance} ${PAIR_1} | ${pair2Balance.toFixed(2)} ${PAIR_2}, Current: ${parseFloat(pair1Balance * price + pair2Balance)} ${PAIR_2}, Initial: ${initialBalance.toFixed(2)} ${PAIR_2}`);
+        `   Balances: ${pair1Balance} ${PAIR_1} | ${pair2Balance.toFixed(2)} ${PAIR_2}, Current: ${parseFloat(pair1Balance * price + pair2Balance).toFixed(3)} ${PAIR_2}, Initial: ${initialBalance.toFixed(2)} ${PAIR_2}`);
     logColor(colors.gray,
-        `   BNB for fees: ${bnbBalance} (${(bnbPrice * bnbBalance).toFixed(3)} USDT) | Pending Orders: ${orders.length}`);
+        `   Pending Orders: ${orders.length}`);
 }
 
 async function _buy(price, amount) {
@@ -86,8 +114,10 @@ async function _buy(price, amount) {
             amountOut: ${BUY_ORDER_AMOUT} ${PAIR_1}
         `)
 
-        const res = await binance.marketBuy(PAIR, order.amount);
-        if(res && res.status === 'FILLED') {
+        // const res = await binance.marketBuy(PAIR, order.amount);
+        const res = await bybit.submitOrder({side: 'Buy', symbol: PAIR, type: 'MARKET', qty: order.amount});
+        console.log('res _buy: ', res);
+        if(res && res.result.status === 'NEW') {
             order.status = 'bought';
             order.id = res.orderId;
             order.buy_price = parseFloat(res.fills[0].price);
@@ -131,8 +161,9 @@ async function _sell(price) {
                 amountOut: ${parseFloat(totalAmount * price).toFixed(2)} ${PAIR_2}
             `)
             
-            const res = await binance.marketSell(PAIR, totalAmount);
-            if (res && res.status === 'FILLED') {
+            // const res = await binance.marketSell(PAIR, totalAmount);
+            const res = bybit.submitOrder({side: 'Sell', symbol: PAIR, type: 'MARKET', qty: totalAmount});
+            if (res && res.result.status === 'NEW') {
                 const _price = parseFloat(res.fills[0].price);
 
                 for(let i = 0; i < orders.length; i++) {
@@ -173,20 +204,22 @@ async function _sell(price) {
 async function listenPrice() {
     while (true) {
         try {
-            let binancePrice = parseFloat((await binance.prices(PAIR))[PAIR]);
-            let bnbPrice = parseFloat((await binance.prices('BNBUSDT'))['BNBUSDT']);
+            // let binancePrice = parseFloat((await binance.prices(PAIR))[PAIR]);
+            const lastTradePrice = await bybit.getLastTradedPrice(PAIR);
+            const bybitPrice = parseFloat(lastTradePrice.result.price);
+            // let bnbPrice = parseFloat((await binance.prices('BNBUSDT'))['BNBUSDT']);
 
             let runningTime = dateFormat(process.uptime());
 
-            if (binancePrice) {
+            if (bybitPrice) {
                 const startPrice = store.get('start_price');
-                const marketPrice = binancePrice;
+                const marketPrice = bybitPrice;
 
                 console.clear();
                 log('========================================================================================');
                 logColor(colors.yellow, `   ${new Date()} | The bot has been running for ${runningTime}`);
                 log('========================================================================================');
-                _logProfits(marketPrice, bnbPrice);
+                _logProfits(marketPrice);
                 log('========================================================================================');
 
                 log(`   Prev Price: ${startPrice}`);
@@ -228,20 +261,42 @@ async function listenPrice() {
 
 async function init() {
     if (process.argv[5] !== 'resume') {
-        const price = await binance.prices(PAIR);
-        store.put('start_price', parseFloat(price[PAIR]));
+        // const price = await binance.prices(PAIR);
+        const lastTradePrice = await bybit.getLastTradedPrice(PAIR);
+        const price = lastTradePrice.result.price;
+        store.put('start_price', parseFloat(price));
         store.put('orders', []);
         store.put('profits', 0);
         const balances = await _balances();
-        store.put(`${PAIR_1.toLocaleLowerCase()}_balance`, parseFloat(balances[PAIR_1].available));
-        store.put(`${PAIR_2.toLocaleLowerCase()}_balance`, parseFloat(balances[PAIR_2].available));
-        store.put(`bnb_balance`, parseFloat(balances['BNB'].available));
+        const pair1 = balances.result.balances.find((b) => b.coin === PAIR_1);
+        const pair2 = balances.result.balances.find((b) => b.coin === PAIR_2);
+        store.put(`${PAIR_1.toLocaleLowerCase()}_balance`, parseFloat(pair1.free));
+        store.put(`${PAIR_2.toLocaleLowerCase()}_balance`, parseFloat(pair2.free));
+        // store.put(`${PAIR_1.toLocaleLowerCase()}_balance`, parseFloat(balances[PAIR_1].available));
+        // store.put(`${PAIR_2.toLocaleLowerCase()}_balance`, parseFloat(balances[PAIR_2].available));
+        // store.put(`bnb_balance`, parseFloat(balances['BNB'].available));
         store.put(`initial_${PAIR_1.toLocaleLowerCase()}_balance`, store.get(`${PAIR_1.toLocaleLowerCase()}_balance`));
         store.put(`initial_${PAIR_2.toLocaleLowerCase()}_balance`, store.get(`${PAIR_2.toLocaleLowerCase()}_balance`));
-        store.put(`initial_bnb_balance`, store.get(`bnb_balance`));
+        // store.put(`initial_bnb_balance`, store.get(`bnb_balance`));
     } 
 
     listenPrice();
 }
 
 init();
+
+
+
+
+// async function testBybit() {
+//     console.log('PAIR: ', PAIR);
+//     const balanceBybit = await _balances();
+//     const usdt = balanceBybit.result.balances.find((b) => b.coin === PAIR_2)
+//     const lastTradePrice = await bybit.getLastTradedPrice(PAIR);
+//     const price = lastTradePrice.result.price;
+//     const balanceBinance = await binance.balance();
+//     const res = await bybit.submitOrder({symbol: PAIR, qty: BUY_ORDER_AMOUT, side: 'Buy',  type: 'MARKET'});
+//     console.log('res: ', res);
+
+// }
+// testBybit();

@@ -18,6 +18,8 @@
   "dependencies": {
     "axios": "^0.27.2",
     "binance-api-node": "^0.11.36",
+    "body-parser": "^1.20.0",
+    "bybit-api": "^2.2.0-beta.1",
     "comma-number": "^2.1.0",
     "dotenv": "^16.0.0",
     "express": "^4.18.1",
